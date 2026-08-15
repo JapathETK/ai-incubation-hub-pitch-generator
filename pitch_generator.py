@@ -1,9 +1,9 @@
 import json
+import streamlit as st
 from openai import OpenAI
 
 # Initialize client
-client = OpenAI(api_key="YOUR_API_KEY")
-
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 def generate_pitch(data):
     prompt = f"""
     Create a professional incubation hub pitch for funders and industry.
