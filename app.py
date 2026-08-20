@@ -1,11 +1,29 @@
 import streamlit as st
 import pandas as pd
+import datetime
+import csv
+import os
 from pitch_generator import generate_pitch
 
 # --- Page Configuration ---
 st.set_page_config(page_title="AI Pitch Generator - PNG", layout="wide")
 st.title("🇵🇬 AI Incubation Hub Pitch Generator")
 st.markdown("*Connecting PNG Innovators to Funding Opportunities*")
+
+# --- Save Pitch to CSV Function ---
+def save_pitch_to_db(hub_name, user_name, pitch_text):
+    """Saves the generated pitch to a CSV file for admin extraction."""
+    try:
+        file_exists = os.path.isfile('pitches.csv')
+        with open('pitches.csv', 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(['Date', 'Hub', 'User', 'Pitch'])
+            writer.writerow([datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), hub_name, user_name, pitch_text])
+        return True
+    except Exception as e:
+        st.error(f"Error saving pitch: {e}")
+        return False
 
 # --- Complete Donor Database for PNG (Based on Official Sources) ---
 @st.cache_data
@@ -162,7 +180,6 @@ def load_donor_data():
         },
         # ============================================================
         # 2. MULTILATERAL & INTERNATIONAL ORGANIZATIONS
-        # Source: PNG Treasury, ADB, World Bank, EU Reports
         # ============================================================
         {
             "Donor": "Asian Development Bank (ADB)",
@@ -729,6 +746,20 @@ if st.button("🎯 Generate Pitch", type="primary"):
 
             st.subheader("📄 Generated Pitch")
             st.text_area("Your Pitch", pitch, height=400, key="generated_pitch")
+            
+            # --- SAVE PITCH TO CSV ---
+            if save_pitch_to_db(hub_name, name, pitch):
+                st.success("✅ Pitch saved to database for admin extraction!")
+
+            # --- DOWNLOAD BUTTON ---
+            if pitch:
+                st.download_button(
+                    label="📥 Download Full Proposal (Text File)",
+                    data=pitch,
+                    file_name=f"{name}_Proposal.txt",
+                    mime="text/plain",
+                    help="Download the complete 20+ page proposal"
+                )
 
             if uploaded_files:
                 st.subheader("📎 Uploaded Files")
@@ -771,3 +802,41 @@ if st.button("🎯 Generate Pitch", type="primary"):
                         with col6:
                             st.link_button("📝 Apply Now", row["Apply"])
                         st.divider()
+
+# --- ADMIN DASHBOARD ---
+st.divider()
+with st.expander("🔐 Admin: Extract Pitches by HUB"):
+    admin_password = st.text_input("Enter Admin Password", type="password")
+    
+    if admin_password == "admin123":
+        extract_hub = st.selectbox(
+            "Select HUB to Extract",
+            ["SoCe Innovation Hub", "CEFI Fintech Hub", "UPNG Innovation Hub", "PNG Unitech Innovation Hub"]
+        )
+        
+        if st.button("Extract Pitches"):
+            try:
+                df = pd.read_csv('pitches.csv')
+                hub_pitches = df[df['Hub'] == extract_hub]
+                
+                if len(hub_pitches) > 0:
+                    st.success(f"✅ Found {len(hub_pitches)} pitches from {extract_hub}")
+                    st.dataframe(hub_pitches)
+                    
+                    csv_data = hub_pitches.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download Extracted Data (CSV)",
+                        data=csv_data,
+                        file_name=f"{extract_hub}_pitches.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.warning(f"No pitches found for {extract_hub}")
+            except FileNotFoundError:
+                st.warning("No pitches have been generated yet. Generate a pitch first!")
+    else:
+        st.warning("Please enter the admin password to access extraction.")
+
+# --- FOOTER ---
+st.divider()
+st.caption("🇵🇬 AI Incubation Hub Pitch Generator | Connecting PNG Innovators to Funding Opportunities")
