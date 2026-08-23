@@ -35,22 +35,43 @@ def save_pitch_to_db(hub_name, user_name, pitch_text):
         st.error(f"Error saving pitch: {e}")
         return False
 
-# --- PDF Generation ---
+# --- PDF Generation with Unicode sanitization ---
 def generate_pdf_proposal(pitch_text, hub_name, user_name):
+    # Helper to replace Unicode characters with ASCII equivalents
+    def sanitize(text):
+        replacements = {
+            '\u2013': '-',   # en dash
+            '\u2014': '--',  # em dash
+            '\u2018': "'",   # left single quote
+            '\u2019': "'",   # right single quote
+            '\u201c': '"',   # left double quote
+            '\u201d': '"',   # right double quote
+            '\u2026': '...', # ellipsis
+            '\u2022': '*',   # bullet
+            '\u00a0': ' ',   # non-breaking space
+        }
+        for char, repl in replacements.items():
+            text = text.replace(char, repl)
+        # Remove any remaining non-ASCII characters
+        text = text.encode('ascii', 'ignore').decode('ascii')
+        return text
+
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
+
     pdf.set_font("Arial", "B", 18)
     pdf.cell(0, 10, "AI Incubation Hub - Funding Proposal", ln=True, align="C")
     pdf.ln(5)
     pdf.set_font("Arial", "", 12)
-    pdf.cell(0, 10, f"Hub: {hub_name}", ln=True)
-    pdf.cell(0, 10, f"Prepared by: {user_name}", ln=True)
+    pdf.cell(0, 10, f"Hub: {sanitize(hub_name)}", ln=True)
+    pdf.cell(0, 10, f"Prepared by: {sanitize(user_name)}", ln=True)
     pdf.cell(0, 10, f"Date: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True)
     pdf.ln(10)
+
     pdf.set_font("Arial", "", 11)
     for line in pitch_text.split('\n'):
-        clean_line = line.strip()
+        clean_line = sanitize(line).strip()
         if clean_line.startswith('#'):
             pdf.set_font("Arial", "B", 14)
             heading_text = clean_line.lstrip('#').strip()
@@ -61,6 +82,7 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
             pdf.ln(4)
         else:
             pdf.multi_cell(0, 6, clean_line)
+
     return pdf.output(dest='S').encode('latin-1')
 
 # --- Word Generation ---
