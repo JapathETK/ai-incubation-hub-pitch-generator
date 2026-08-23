@@ -95,6 +95,62 @@ def parse_inline_markdown(text):
 
 # --- Improved PDF Generation ---
 def generate_pdf_proposal(pitch_text, hub_name, user_name):
+    import re
+
+    def sanitize(text):
+        # Replace common Unicode characters with ASCII equivalents
+        replacements = {
+            '\u2013': '-', '\u2014': '--', '\u2018': "'", '\u2019': "'",
+            '\u201c': '"', '\u201d': '"', '\u2026': '...', '\u2022': '*',
+            '\u2023': '*', '\u2043': '*', '\u00a0': ' '
+        }
+        for char, repl in replacements.items():
+            text = text.replace(char, repl)
+        # Remove any remaining non-ASCII characters
+        text = text.encode('ascii', 'ignore').decode('ascii')
+        return text
+
+    def parse_inline_markdown(text):
+        # text is already sanitized and ASCII
+        segments = []
+        last_end = 0
+        bold_matches = list(re.finditer(r'\*\*([^\*]+)\*\*', text))
+        if bold_matches:
+            for match in bold_matches:
+                start, end = match.span()
+                if start > last_end:
+                    segments.append(('normal', text[last_end:start]))
+                segments.append(('bold', match.group(1)))
+                last_end = end
+            if last_end < len(text):
+                segments.append(('normal', text[last_end:]))
+        else:
+            segments.append(('normal', text))
+
+        final_segments = []
+        for style, seg_text in segments:
+            if style == 'normal':
+                italic_matches = list(re.finditer(r'\*([^\*]+)\*', seg_text))
+                if italic_matches:
+                    last = 0
+                    for match in italic_matches:
+                        s, e = match.span()
+                        if s > last:
+                            final_segments.append(('normal', seg_text[last:s]))
+                        final_segments.append(('italic', match.group(1)))
+                        last = e
+                    if last < len(seg_text):
+                        final_segments.append(('normal', seg_text[last:]))
+                else:
+                    final_segments.append(('normal', seg_text))
+            else:
+                final_segments.append((style, seg_text))
+        # Re‑sanitize each segment text just in case
+        sanitized_segments = []
+        for style, part in final_segments:
+            sanitized_segments.append((style, sanitize(part)))
+        return sanitized_segments
+
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
@@ -111,12 +167,14 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
 
     pdf.set_font("Arial", "", 11)
 
-    # Helper to write a paragraph with inline formatting
     def write_formatted_paragraph(text, indent=0):
+        # text is already sanitized, but we re‑sanitize to be safe
+        text = sanitize(text)
         segments = parse_inline_markdown(text)
         if indent:
             pdf.cell(indent)
         for style, part in segments:
+            part = sanitize(part)   # extra safety
             if style == 'bold':
                 pdf.set_font("Arial", "B", 11)
             elif style == 'italic':
@@ -132,14 +190,16 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
             pdf.ln(4)
             continue
 
+        # Sanitize the entire line first
         clean = sanitize(raw)
 
-        # --- Table of Contents (multiple numbered items in one line) ---
+        # --- Table of Contents (multiple numbered items) ---
         if re.search(r'\d+\.\s+[A-Z]', clean) and len(clean.split('.')) > 3:
             parts = re.split(r'(\d+\.\s+[A-Z][A-Z\s]+)', clean)
             for part in parts:
                 part = part.strip()
                 if re.match(r'\d+\.\s+', part):
+                    part = sanitize(part)   # re‑sanitize
                     pdf.set_font("Arial", "B", 11)
                     pdf.cell(8)
                     pdf.multi_cell(0, 6, part)
@@ -147,9 +207,10 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
                     pdf.ln(1)
             continue
 
-        # --- Headings (starts with #) ---
+        # --- Headings ---
         if clean.startswith('#'):
             heading_text = clean.lstrip('#').strip()
+            heading_text = sanitize(heading_text)
             pdf.set_font("Arial", "B", 14)
             pdf.multi_cell(0, 8, heading_text)
             pdf.set_font("Arial", "", 11)
@@ -160,17 +221,20 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
         if re.match(r'^(\d+\.)\s', clean):
             pdf.set_font("Arial", "", 11)
             pdf.cell(8)
+            # clean is already sanitized, but write_formatted_paragraph will re‑sanitize
             write_formatted_paragraph(clean, indent=0)
             continue
 
         # --- Bullet lists ---
         if clean.startswith('- ') or clean.startswith('* '):
             list_text = clean[2:] if clean.startswith('- ') else clean[2:]
+            list_text = sanitize(list_text)
             pdf.set_font("Arial", "", 11)
             pdf.cell(8)
-            pdf.write(6, "• ")
+            pdf.write(6, "• ")   # plain ASCII bullet
             segments = parse_inline_markdown(list_text)
             for style, part in segments:
+                part = sanitize(part)
                 if style == 'bold':
                     pdf.set_font("Arial", "B", 11)
                 elif style == 'italic':
@@ -181,17 +245,17 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
             pdf.ln(6)
             continue
 
-        # --- Budget table (if line contains pipes) ---
+        # --- Budget table (lines with pipes) ---
         if '|' in clean:
             clean = re.sub(r'<[^>]+>', '', clean)
             clean = re.sub(r'\s+', ' ', clean).strip()
+            clean = sanitize(clean)
             pdf.set_font("Arial", "", 11)
             pdf.multi_cell(0, 6, clean)
             pdf.ln(1)
             continue
 
-        # --- Regular paragraph with inline formatting ---
-        pdf.set_font("Arial", "", 11)
+        # --- Regular paragraph ---
         write_formatted_paragraph(clean)
 
     return pdf.output(dest='S').encode('latin-1', errors='ignore')
