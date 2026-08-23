@@ -4,15 +4,25 @@ import datetime
 import csv
 import os
 from pitch_generator import generate_pitch
+from fpdf import FPDF
+from docx import Document
+from io import BytesIO
 
 # --- Page Configuration ---
 st.set_page_config(page_title="AI Pitch Generator - PNG", layout="wide")
 st.title("🇵🇬 AI Incubation Hub Pitch Generator")
 st.markdown("*Connecting PNG Innovators to Funding Opportunities*")
 
-# --- Save Pitch to CSV Function ---
+# --- Session state ---
+if "donor_matches" not in st.session_state:
+    st.session_state.donor_matches = None
+if "selected_donor" not in st.session_state:
+    st.session_state.selected_donor = None
+if "generated_pitch" not in st.session_state:
+    st.session_state.generated_pitch = None
+
+# --- Save Pitch to CSV (admin only) ---
 def save_pitch_to_db(hub_name, user_name, pitch_text):
-    """Saves the generated pitch to a CSV file for admin extraction."""
     try:
         file_exists = os.path.isfile('pitches.csv')
         with open('pitches.csv', 'a', newline='', encoding='utf-8') as f:
@@ -25,14 +35,63 @@ def save_pitch_to_db(hub_name, user_name, pitch_text):
         st.error(f"Error saving pitch: {e}")
         return False
 
-# --- Complete Donor Database for PNG (Based on Official Sources) ---
+# --- PDF Generation ---
+def generate_pdf_proposal(pitch_text, hub_name, user_name):
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 18)
+    pdf.cell(0, 10, "AI Incubation Hub - Funding Proposal", ln=True, align="C")
+    pdf.ln(5)
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 10, f"Hub: {hub_name}", ln=True)
+    pdf.cell(0, 10, f"Prepared by: {user_name}", ln=True)
+    pdf.cell(0, 10, f"Date: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True)
+    pdf.ln(10)
+    pdf.set_font("Arial", "", 11)
+    for line in pitch_text.split('\n'):
+        clean_line = line.strip()
+        if clean_line.startswith('#'):
+            pdf.set_font("Arial", "B", 14)
+            heading_text = clean_line.lstrip('#').strip()
+            pdf.multi_cell(0, 8, heading_text)
+            pdf.set_font("Arial", "", 11)
+            pdf.ln(2)
+        elif clean_line == '':
+            pdf.ln(4)
+        else:
+            pdf.multi_cell(0, 6, clean_line)
+    return pdf.output(dest='S').encode('latin-1')
+
+# --- Word Generation ---
+def generate_word_proposal(pitch_text, hub_name, user_name):
+    doc = Document()
+    title = doc.add_heading('AI Incubation Hub - Funding Proposal', 0)
+    title.alignment = 1
+    doc.add_paragraph(f"Hub: {hub_name}")
+    doc.add_paragraph(f"Prepared by: {user_name}")
+    doc.add_paragraph(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d')}")
+    doc.add_paragraph()
+    for line in pitch_text.split('\n'):
+        clean_line = line.strip()
+        if clean_line.startswith('#'):
+            level = min(len(clean_line) - len(clean_line.lstrip('#')), 9)
+            heading_text = clean_line.lstrip('#').strip()
+            doc.add_heading(heading_text, level=level)
+        elif clean_line == '':
+            doc.add_paragraph()
+        else:
+            doc.add_paragraph(clean_line)
+    buffer = BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
+# --- Full Donor Database (47 donors) ---
 @st.cache_data
 def load_donor_data():
-    """Loads and caches the complete donor database for PNG based on official sources."""
     return pd.DataFrame([
         # ============================================================
-        # 1. BILATERAL DONORS (Country-to-Country Aid)
-        # Source: PNG Treasury, National Budget 2020-2026
+        # 1. BILATERAL DONORS
         # ============================================================
         {
             "Donor": "Australia (DFAT)",
@@ -44,7 +103,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Australian Government",
             "Website": "https://www.dfat.gov.au/geo/papua-new-guinea",
-            "Apply": "https://www.dfat.gov.au/geo/papua-new-guinea/development-assistance"
+            "Apply": "https://www.dfat.gov.au/geo/papua-new-guinea/development-assistance",
+            "MaxPages": 25,
+            "RecommendedPages": 15
         },
         {
             "Donor": "China (PRC)",
@@ -56,7 +117,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "People's Republic of China",
             "Website": "https://www.cidca.gov.cn",
-            "Apply": "https://www.cidca.gov.cn/english"
+            "Apply": "https://www.cidca.gov.cn/english",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         {
             "Donor": "Japan (JICA)",
@@ -68,7 +131,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Government of Japan",
             "Website": "https://www.jica.go.jp/png",
-            "Apply": "https://www.jica.go.jp/png/english/activities/index.html"
+            "Apply": "https://www.jica.go.jp/png/english/activities/index.html",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         {
             "Donor": "New Zealand (MFAT)",
@@ -80,7 +145,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "New Zealand Government",
             "Website": "https://www.mfat.govt.nz/en/countries-and-regions/pacific/papua-new-guinea",
-            "Apply": "https://www.mfat.govt.nz/en/aid-and-development/"
+            "Apply": "https://www.mfat.govt.nz/en/aid-and-development/",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         {
             "Donor": "United States (USAID)",
@@ -92,7 +159,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "U.S. Government",
             "Website": "https://www.usaid.gov/papua-new-guinea",
-            "Apply": "https://www.usaid.gov/papua-new-guinea/opportunities"
+            "Apply": "https://www.usaid.gov/papua-new-guinea/opportunities",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         {
             "Donor": "France (AFD)",
@@ -104,7 +173,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Government of France",
             "Website": "https://www.afd.fr",
-            "Apply": "https://www.afd.fr/en/countries/papua-new-guinea"
+            "Apply": "https://www.afd.fr/en/countries/papua-new-guinea",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         {
             "Donor": "Germany (GIZ)",
@@ -116,7 +187,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "German Government",
             "Website": "https://www.giz.de/en/worldwide/346.html",
-            "Apply": "https://www.giz.de/en/working_with_giz/apply_for_funding.html"
+            "Apply": "https://www.giz.de/en/working_with_giz/apply_for_funding.html",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         {
             "Donor": "Korea (KOICA)",
@@ -128,7 +201,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Government of Korea",
             "Website": "https://www.koica.go.kr/png_en/index.do",
-            "Apply": "https://www.koica.go.kr/png_en/partner/index.do"
+            "Apply": "https://www.koica.go.kr/png_en/partner/index.do",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         {
             "Donor": "United Kingdom (FCDO)",
@@ -140,7 +215,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "UK Government",
             "Website": "https://www.gov.uk/world/organisations/foreign-commonwealth-development-office",
-            "Apply": "https://www.gov.uk/apply-for-funding"
+            "Apply": "https://www.gov.uk/apply-for-funding",
+            "MaxPages": 25,
+            "RecommendedPages": 15
         },
         {
             "Donor": "India",
@@ -152,7 +229,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Government of India",
             "Website": "https://www.mea.gov.in/png.htm",
-            "Apply": "https://www.indiacop.org/"
+            "Apply": "https://www.indiacop.org/",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         {
             "Donor": "Canada (Global Affairs)",
@@ -164,7 +243,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Government of Canada",
             "Website": "https://www.international.gc.ca/world-monde/papua_new_guinea-papouasie_nouvelle_guinee.aspx",
-            "Apply": "https://www.international.gc.ca/world-monde/funding-financement.aspx"
+            "Apply": "https://www.international.gc.ca/world-monde/funding-financement.aspx",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         {
             "Donor": "Czech Republic (Ceska/Erste)",
@@ -176,7 +257,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Czech Government",
             "Website": "https://www.mzv.cz",
-            "Apply": "https://www.mzv.cz/jnp/en/index.html"
+            "Apply": "https://www.mzv.cz/jnp/en/index.html",
+            "MaxPages": 20,
+            "RecommendedPages": 10
         },
         # ============================================================
         # 2. MULTILATERAL & INTERNATIONAL ORGANIZATIONS
@@ -191,7 +274,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "ADB",
             "Website": "https://www.adb.org/countries/papua-new-guinea",
-            "Apply": "https://www.adb.org/projects"
+            "Apply": "https://www.adb.org/projects",
+            "MaxPages": 50,
+            "RecommendedPages": 25
         },
         {
             "Donor": "World Bank Group",
@@ -203,7 +288,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "World Bank",
             "Website": "https://www.worldbank.org/en/country/png",
-            "Apply": "https://projects.worldbank.org/en/projects-operations/projects-list"
+            "Apply": "https://projects.worldbank.org/en/projects-operations/projects-list",
+            "MaxPages": 50,
+            "RecommendedPages": 25
         },
         {
             "Donor": "European Union (EU)",
@@ -215,7 +302,9 @@ def load_donor_data():
             "Status": "Open",
             "Partner": "European Union",
             "Website": "https://international-partnerships.ec.europa.eu/countries/papua-new-guinea_en",
-            "Apply": "https://fccbpng.eu/grant-scheme"
+            "Apply": "https://fccbpng.eu/grant-scheme",
+            "MaxPages": 40,
+            "RecommendedPages": 20
         },
         {
             "Donor": "United Nations (UN)",
@@ -227,7 +316,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "United Nations",
             "Website": "https://www.un.org/papua-new-guinea",
-            "Apply": "https://www.undp.org/papua-new-guinea/projects"
+            "Apply": "https://www.undp.org/papua-new-guinea/projects",
+            "MaxPages": 30,
+            "RecommendedPages": 20
         },
         {
             "Donor": "European Investment Bank (EIB)",
@@ -239,7 +330,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "European Union",
             "Website": "https://www.eib.org",
-            "Apply": "https://www.eib.org/en/projects/index.htm"
+            "Apply": "https://www.eib.org/en/projects/index.htm",
+            "MaxPages": 40,
+            "RecommendedPages": 20
         },
         {
             "Donor": "Asian Infrastructure Investment Bank (AIIB)",
@@ -251,7 +344,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "AIIB",
             "Website": "https://www.aiib.org",
-            "Apply": "https://www.aiib.org/en/projects"
+            "Apply": "https://www.aiib.org/en/projects",
+            "MaxPages": 40,
+            "RecommendedPages": 20
         },
         {
             "Donor": "Green Climate Fund (GCF)",
@@ -263,7 +358,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Green Climate Fund",
             "Website": "https://www.greenclimate.fund/countries/papua-new-guinea",
-            "Apply": "https://www.greenclimate.fund/apply"
+            "Apply": "https://www.greenclimate.fund/apply",
+            "MaxPages": 60,
+            "RecommendedPages": 30
         },
         {
             "Donor": "Global Fund (GFATM)",
@@ -275,7 +372,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Global Fund",
             "Website": "https://www.theglobalfund.org/en/portfolio/country/?loc=PNG",
-            "Apply": "https://www.theglobalfund.org/en/funding/"
+            "Apply": "https://www.theglobalfund.org/en/funding/",
+            "MaxPages": 30,
+            "RecommendedPages": 20
         },
         {
             "Donor": "Global Partnership for Education (GPE)",
@@ -287,7 +386,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "GPE / World Bank",
             "Website": "https://www.globalpartnership.org/where-we-work/papua-new-guinea",
-            "Apply": "https://www.globalpartnership.org/funding"
+            "Apply": "https://www.globalpartnership.org/funding",
+            "MaxPages": 30,
+            "RecommendedPages": 20
         },
         # ============================================================
         # 3. UN SPECIALIZED AGENCIES
@@ -302,7 +403,9 @@ def load_donor_data():
             "Status": "Open",
             "Partner": "United Nations",
             "Website": "https://www.undp.org/papua-new-guinea",
-            "Apply": "https://www.undp.org/papua-new-guinea/projects"
+            "Apply": "https://www.undp.org/papua-new-guinea/projects",
+            "MaxPages": 30,
+            "RecommendedPages": 20
         },
         {
             "Donor": "UNICEF",
@@ -314,7 +417,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "United Nations",
             "Website": "https://www.unicef.org/png",
-            "Apply": "https://www.unicef.org/png/partner-with-us"
+            "Apply": "https://www.unicef.org/png/partner-with-us",
+            "MaxPages": 30,
+            "RecommendedPages": 20
         },
         {
             "Donor": "FAO",
@@ -326,7 +431,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "United Nations",
             "Website": "https://www.fao.org/papua-new-guinea",
-            "Apply": "https://www.fao.org/papua-new-guinea/projects"
+            "Apply": "https://www.fao.org/papua-new-guinea/projects",
+            "MaxPages": 30,
+            "RecommendedPages": 20
         },
         {
             "Donor": "IFAD",
@@ -338,7 +445,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "United Nations",
             "Website": "https://www.ifad.org/en/web/operations/country/papua-new-guinea",
-            "Apply": "https://www.ifad.org/en/operations"
+            "Apply": "https://www.ifad.org/en/operations",
+            "MaxPages": 30,
+            "RecommendedPages": 20
         },
         {
             "Donor": "UNFPA",
@@ -350,7 +459,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "United Nations",
             "Website": "https://pacific.unfpa.org/en/papua-new-guinea",
-            "Apply": "https://www.unfpa.org/funding"
+            "Apply": "https://www.unfpa.org/funding",
+            "MaxPages": 30,
+            "RecommendedPages": 20
         },
         {
             "Donor": "UN Women",
@@ -362,7 +473,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "United Nations",
             "Website": "https://pacific.unwomen.org/en/countries/papua-new-guinea",
-            "Apply": "https://www.unwomen.org/en/get-involved/funding"
+            "Apply": "https://www.unwomen.org/en/get-involved/funding",
+            "MaxPages": 30,
+            "RecommendedPages": 20
         },
         {
             "Donor": "ILO",
@@ -374,7 +487,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "United Nations",
             "Website": "https://www.ilo.org/papua-new-guinea",
-            "Apply": "https://www.ilo.org/papua-new-guinea/projects"
+            "Apply": "https://www.ilo.org/papua-new-guinea/projects",
+            "MaxPages": 30,
+            "RecommendedPages": 20
         },
         {
             "Donor": "UNODC",
@@ -386,7 +501,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "United Nations",
             "Website": "https://www.unodc.org/papua-new-guinea",
-            "Apply": "https://www.unodc.org/papua-new-guinea/contact"
+            "Apply": "https://www.unodc.org/papua-new-guinea/contact",
+            "MaxPages": 25,
+            "RecommendedPages": 15
         },
         # ============================================================
         # 4. REGIONAL & PACIFIC SPECIFIC FUNDING
@@ -401,7 +518,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Pacific Islands Forum",
             "Website": "https://www.forumsec.org",
-            "Apply": "https://www.forumsec.org/contact/"
+            "Apply": "https://www.forumsec.org/contact/",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         {
             "Donor": "Pacific Community (SPC)",
@@ -413,7 +532,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Pacific Community",
             "Website": "https://www.spc.int",
-            "Apply": "https://www.spc.int/contact"
+            "Apply": "https://www.spc.int/contact",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         {
             "Donor": "Secretariat of the Pacific (SPREP)",
@@ -425,7 +546,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "SPREP",
             "Website": "https://www.sprep.org",
-            "Apply": "https://www.sprep.org/contact"
+            "Apply": "https://www.sprep.org/contact",
+            "MaxPages": 20,
+            "RecommendedPages": 12
         },
         # ============================================================
         # 5. PNG GOVERNMENT & NATIONAL FUNDS
@@ -440,7 +563,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "DFAT Australia",
             "Website": "https://incentivefund.gov.pg",
-            "Apply": "https://incentivefund.gov.pg/apply"
+            "Apply": "https://incentivefund.gov.pg/apply",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "National Development Bank (NDB)",
@@ -452,7 +577,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "NDB PNG",
             "Website": "https://www.ndb.com.pg",
-            "Apply": "https://www.ndb.com.pg/contact/"
+            "Apply": "https://www.ndb.com.pg/contact/",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "Small Business Development Corporation (SBDC)",
@@ -464,7 +591,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "PNG Government",
             "Website": "https://www.sbdc.org.pg",
-            "Apply": "https://www.sbdc.org.pg/contact/"
+            "Apply": "https://www.sbdc.org.pg/contact/",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "UAS Fund",
@@ -476,7 +605,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "NICTA PNG Government",
             "Website": "https://www.nicta.gov.pg",
-            "Apply": "https://www.nicta.gov.pg/uas-fund"
+            "Apply": "https://www.nicta.gov.pg/uas-fund",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         # ============================================================
         # 6. NGOs, FOUNDATIONS & PRIVATE SECTOR
@@ -491,7 +622,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Santos Limited",
             "Website": "https://www.santosfoundation.org",
-            "Apply": "https://www.santosfoundation.org/apply"
+            "Apply": "https://www.santosfoundation.org/apply",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "Malaysian Association of PNG (MAPNG)",
@@ -503,7 +636,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "MAPNG",
             "Website": "https://www.mapng.org.pg",
-            "Apply": "https://www.mapng.org.pg/apply"
+            "Apply": "https://www.mapng.org.pg/apply",
+            "MaxPages": 12,
+            "RecommendedPages": 8
         },
         {
             "Donor": "PNG LNG (ExxonMobil)",
@@ -515,7 +650,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "ExxonMobil PNG",
             "Website": "https://corporate.exxonmobil.com/locations/papua-new-guinea",
-            "Apply": "https://corporate.exxonmobil.com/community-engagement"
+            "Apply": "https://corporate.exxonmobil.com/community-engagement",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "OK Tedi Mining Limited",
@@ -527,7 +664,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "OK Tedi Mining",
             "Website": "https://www.oktedi.com/our-communities",
-            "Apply": "https://www.oktedi.com/our-communities/community-development"
+            "Apply": "https://www.oktedi.com/our-communities/community-development",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "Barrick Gold / Porgera",
@@ -539,7 +678,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Barrick Gold",
             "Website": "https://www.barrick.com/operations/porgera/default.aspx",
-            "Apply": "https://www.barrick.com/sustainability/community/default.aspx"
+            "Apply": "https://www.barrick.com/sustainability/community/default.aspx",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "CEFI Fintech Hub",
@@ -551,7 +692,9 @@ def load_donor_data():
             "Status": "Open",
             "Partner": "PNG Unitech / CEFI",
             "Website": "https://www.cefi.com.pg",
-            "Apply": "https://www.cefi.com.pg/incubation"
+            "Apply": "https://www.cefi.com.pg/incubation",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "Rotary International PNG",
@@ -563,7 +706,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Rotary International",
             "Website": "https://www.rotary.org/en/papua-new-guinea",
-            "Apply": "https://www.rotary.org/en/grants"
+            "Apply": "https://www.rotary.org/en/grants",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "World Vision PNG",
@@ -575,7 +720,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "World Vision International",
             "Website": "https://www.worldvision.com.pg",
-            "Apply": "https://www.worldvision.com.pg/get-involved"
+            "Apply": "https://www.worldvision.com.pg/get-involved",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "Care International PNG",
@@ -587,7 +734,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "Care International",
             "Website": "https://www.care.org.au/papua-new-guinea/",
-            "Apply": "https://www.care.org.au/partner-with-us/"
+            "Apply": "https://www.care.org.au/partner-with-us/",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "Pacific Women in Business (PWIB)",
@@ -599,7 +748,9 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "DFAT Australia",
             "Website": "https://www.pacificwomeninbusiness.org",
-            "Apply": "https://www.pacificwomeninbusiness.org/contact"
+            "Apply": "https://www.pacificwomeninbusiness.org/contact",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         },
         {
             "Donor": "Pacific Financial Inclusion Programme (PFIP)",
@@ -611,20 +762,19 @@ def load_donor_data():
             "Status": "Continuous",
             "Partner": "PFIP / UNCDF",
             "Website": "https://www.pfip.org",
-            "Apply": "https://www.pfip.org/contact"
+            "Apply": "https://www.pfip.org/contact",
+            "MaxPages": 15,
+            "RecommendedPages": 10
         }
     ])
 
 donors = load_donor_data()
 
-# --- AI Donor Matching Function ---
+# --- AI Donor Matching ---
 def ai_match_donor(pitch_text, donors_df):
-    """Uses OpenAI to match the pitch with suitable donors."""
     donor_list = donors_df[['Donor', 'Focus', 'Funding Call']].to_string(index=False)
-
     prompt = f"""
 You are an expert grant and funding advisor in Papua New Guinea.
-
 Analyze the following pitch and recommend the three most suitable donors from this list:
 
 **Pitch Summary:**
@@ -634,13 +784,12 @@ Analyze the following pitch and recommend the three most suitable donors from th
 {donor_list}
 
 **Instructions:**
-1. Return only the top 3 donors.
-2. Provide a clear, concise reason for each match.
-
-**Output Format:**
-- **Donor A:** [Reason for match]
-- **Donor B:** [Reason for match]
-- **Donor C:** [Reason for match]
+- Return exactly 3 donors.
+- For each, provide a one‑line reason for the match.
+- Format:
+  Donor A: [Reason]
+  Donor B: [Reason]
+  Donor C: [Reason]
 """
     try:
         from openai import OpenAI
@@ -651,38 +800,50 @@ Analyze the following pitch and recommend the three most suitable donors from th
             temperature=0.5,
             max_tokens=300
         )
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        matches = []
+        for line in content.split('\n'):
+            if ':' in line and ('Donor' in line or ':' in line):
+                parts = line.split(':', 1)
+                if len(parts) == 2:
+                    donor_name = parts[0].replace('**', '').strip()
+                    reason = parts[1].strip()
+                    for prefix in ['Donor A:', 'Donor B:', 'Donor C:', 'Donor']:
+                        if donor_name.startswith(prefix):
+                            donor_name = donor_name[len(prefix):].strip()
+                    matches.append((donor_name, reason))
+        if len(matches) < 3:
+            top_donors = donors_df['Donor'].head(3).tolist()
+            matches = [(d, "Recommended by AI") for d in top_donors]
+        return matches
     except Exception as e:
-        return f"⚠️ AI Matching Error: {e}. Please check OpenAI credits."
+        st.error(f"AI matching error: {e}")
+        top_donors = donors_df['Donor'].head(3).tolist()
+        return [(d, "Fallback match (AI error)") for d in top_donors]
 
-# --- SIDEBAR: Donor Database with Filters ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("🏢 Donor Database")
     st.caption(f"**{len(donors)}** donors and funding sources available")
-    
     sector_filter = st.selectbox("Filter by Sector", ["All"] + sorted(donors["Sector"].unique().tolist()))
     if sector_filter != "All":
         filtered_donors = donors[donors["Sector"] == sector_filter]
     else:
         filtered_donors = donors.copy()
-    
     status_filter = st.selectbox("Filter by Status", ["All", "Open", "Continuous", "Closed"])
     if status_filter != "All":
         filtered_donors = filtered_donors[filtered_donors["Status"] == status_filter]
-    
     st.dataframe(filtered_donors[["Donor", "Funding Call", "Amount", "Deadline", "Status"]], use_container_width=True)
     st.caption("🔍 Click 'Apply Now' under the generated pitch to apply.")
 
 # --- MAIN FORM ---
 st.subheader("📝 Enter Your Innovation Hub Details")
-
 hub_options = ["SoCe Innovation Hub", "CEFI Fintech Hub", "UPNG Innovation Hub", "PNG Unitech Innovation Hub", "Other"]
 hub_name = st.selectbox("🏢 Select Your Innovation Hub", hub_options)
 if hub_name == "Other":
     hub_name = st.text_input("Enter your HUB name")
 
 col1, col2 = st.columns(2)
-
 with col1:
     name = st.text_input("Hub Name")
     location = st.text_input("Location")
@@ -694,7 +855,7 @@ with col2:
     beneficiaries = st.text_area("Beneficiaries")
     funding = st.text_input("Funding Needed")
 
-# --- FILE UPLOAD ---
+# --- File Upload ---
 st.subheader("📎 Upload Supporting Documents")
 uploaded_files = st.file_uploader(
     f"Upload videos, papers, or other supporting documents for {hub_name}",
@@ -702,7 +863,7 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-# --- IP PROTECTION & ACCESS CONTROL ---
+# --- IP Protection ---
 st.divider()
 st.subheader("🔒 Intellectual Property Protection & Access Control")
 st.markdown("""
@@ -716,21 +877,67 @@ st.markdown("""
 - 🏢 **HUB Admins:** Can view all files from their HUB
 - 🌐 **General Public:** Cannot view any uploaded files
 """)
-
 agree = st.checkbox("✅ I agree to the IP Protection Terms and confirm I own the rights to my content")
 if agree:
     st.success("✅ You have agreed to the terms. Your IP is protected.")
 else:
     st.warning("⚠️ Please agree to the terms to protect your intellectual property.")
 
-# --- GENERATE PITCH ---
-if st.button("🎯 Generate Pitch", type="primary"):
+# --- Step 1: Find Donors ---
+if st.button("🔍 Find Best Donors", type="primary"):
     if not name:
-        st.warning("Please enter at least a Hub Name")
+        st.warning("Please enter at least a Hub Name.")
     elif not agree:
-        st.warning("Please agree to the IP Protection Terms before generating a pitch.")
+        st.warning("Please agree to the IP Protection Terms first.")
     else:
-        with st.spinner("Generating your pitch and finding best-fit donors..."):
+        with st.spinner("Analyzing your pitch and finding the best donors..."):
+            full_pitch_text = f"Hub: {hub_name}\nName: {name}\nLocation: {location}\nProblem: {problem}\nSolution: {solution}\nFocus: {focus}\nFunding: {funding}\nBeneficiaries: {beneficiaries}"
+            matches = ai_match_donor(full_pitch_text, filtered_donors)
+            st.session_state.donor_matches = matches
+            st.session_state.selected_donor = None
+            st.session_state.generated_pitch = None
+            st.rerun()
+
+# --- Step 2: Display matches and allow selection ---
+if st.session_state.donor_matches is not None:
+    st.subheader("🏆 Top 3 Matching Donors")
+    donor_options = []
+    donor_reasons = {}
+    for i, (donor_name, reason) in enumerate(st.session_state.donor_matches):
+        label = f"{donor_name} – {reason}"
+        donor_options.append(label)
+        donor_reasons[label] = (donor_name, reason)
+
+    selected_label = st.radio(
+        "Select the donor you want to target:",
+        donor_options,
+        index=0
+    )
+    selected_donor_name, selected_reason = donor_reasons[selected_label]
+    st.session_state.selected_donor = selected_donor_name
+
+    # Show donor details
+    donor_row = donors[donors["Donor"] == selected_donor_name]
+    if not donor_row.empty:
+        st.info(f"**Donor Focus:** {donor_row.iloc[0]['Focus']}")
+        st.info(f"**Funding Call:** {donor_row.iloc[0]['Funding Call']}")
+        max_pages = donor_row.iloc[0].get('MaxPages', 30)
+        rec_pages = donor_row.iloc[0].get('RecommendedPages', 10)
+        st.info(f"**Recommended page length:** ~{rec_pages} pages (max {max_pages})")
+
+    # Page number input
+    desired_pages = st.number_input(
+        "📄 Desired Proposal Length (pages)",
+        min_value=3,
+        max_value=30,
+        value=min(rec_pages, 30) if 'rec_pages' in locals() else 10,
+        step=1,
+        help="Choose the number of pages for your proposal. Recommended based on donor guidelines."
+    )
+
+    # --- Step 3: Generate Pitch ---
+    if st.button("🎯 Generate Pitch", type="primary"):
+        with st.spinner("Generating your pitch..."):
             data = {
                 "name": name,
                 "location": location,
@@ -739,28 +946,22 @@ if st.button("🎯 Generate Pitch", type="primary"):
                 "solution": solution,
                 "beneficiaries": beneficiaries,
                 "funding": funding,
-                "hub": hub_name
+                "hub": hub_name,
+                "desired_pages": desired_pages,
+                "selected_donor": selected_donor_name
             }
-
             pitch = generate_pitch(data)
-
-            st.subheader("📄 Generated Pitch")
-            st.text_area("Your Pitch", pitch, height=400, key="generated_pitch")
-            
-            # --- SAVE PITCH TO CSV ---
+            st.session_state.generated_pitch = pitch
             if save_pitch_to_db(hub_name, name, pitch):
                 st.success("✅ Pitch saved to database for admin extraction!")
-
-            # --- DOWNLOAD BUTTON ---
+            st.subheader("📄 Generated Pitch")
+            st.text_area("Your Pitch", pitch, height=400, key="generated_pitch")
             if pitch:
-                st.download_button(
-                    label="📥 Download Full Proposal (Text File)",
-                    data=pitch,
-                    file_name=f"{name}_Proposal.txt",
-                    mime="text/plain",
-                    help="Download the complete 20+ page proposal"
-                )
-
+                st.download_button(label="📥 Download Full Proposal (Text File)", data=pitch, file_name=f"{name}_Proposal.txt", mime="text/plain", help="Download as plain text")
+                pdf_data = generate_pdf_proposal(pitch, hub_name, name)
+                st.download_button(label="📄 Download High Quality Proposal (PDF)", data=pdf_data, file_name=f"{name}_Proposal.pdf", mime="application/pdf", help="Download as PDF")
+                word_data = generate_word_proposal(pitch, hub_name, name)
+                st.download_button(label="📝 Download High Quality Proposal (Word)", data=word_data, file_name=f"{name}_Proposal.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", help="Download as Word")
             if uploaded_files:
                 st.subheader("📎 Uploaded Files")
                 st.write(f"**HUB:** {hub_name}")
@@ -768,68 +969,41 @@ if st.button("🎯 Generate Pitch", type="primary"):
                 for file in uploaded_files:
                     st.write(f"- {file.name}")
                 st.caption("🔒 Files are private and accessible only to you and your HUB admins.")
-
-            st.subheader("🏢 Suggested Donors for This Pitch")
-            st.info("The AI has analyzed your pitch and selected the most relevant donors from the complete PNG donor database.")
-
-            full_pitch_text = f"Hub: {hub_name}\nName: {name}\nLocation: {location}\nProblem: {problem}\nSolution: {solution}\nFocus: {focus}\nFunding: {funding}\nBeneficiaries: {beneficiaries}"
-
-            ai_donor_suggestions = ai_match_donor(full_pitch_text, filtered_donors)
-
-            if "Error" in ai_donor_suggestions or "⚠️" in ai_donor_suggestions:
-                st.error(ai_donor_suggestions)
-                st.warning("Using fallback matching method. Please check your OpenAI credits.")
-            else:
-                st.markdown(ai_donor_suggestions)
-
-                st.divider()
-                st.subheader("📋 Full Donor List with Application Links")
-                st.caption(f"Showing {len(filtered_donors)} donors from the complete PNG funding database")
-
-                for idx, row in filtered_donors.iterrows():
-                    with st.container():
-                        col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1, 1, 1, 1])
-                        with col1:
-                            st.markdown(f"**{row['Donor']}**")
-                        with col2:
-                            st.write(row['Funding Call'])
-                        with col3:
-                            st.write(row['Amount'])
-                        with col4:
-                            st.write(row['Status'])
-                        with col5:
-                            st.link_button("🌐 Website", row["Website"])
-                        with col6:
-                            st.link_button("📝 Apply Now", row["Apply"])
-                        st.divider()
+            st.divider()
+            st.subheader("📋 Full Donor List with Application Links")
+            st.caption(f"Showing {len(filtered_donors)} donors from the complete PNG funding database")
+            for idx, row in filtered_donors.iterrows():
+                with st.container():
+                    col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1, 1, 1, 1])
+                    with col1:
+                        st.markdown(f"**{row['Donor']}**")
+                    with col2:
+                        st.write(row['Funding Call'])
+                    with col3:
+                        st.write(row['Amount'])
+                    with col4:
+                        st.write(row['Status'])
+                    with col5:
+                        st.link_button("🌐 Website", row["Website"])
+                    with col6:
+                        st.link_button("📝 Apply Now", row["Apply"])
+                    st.divider()
 
 # --- ADMIN DASHBOARD ---
 st.divider()
 with st.expander("🔐 Admin: Extract Pitches by HUB"):
     admin_password = st.text_input("Enter Admin Password", type="password")
-    
     if admin_password == "admin123":
-        extract_hub = st.selectbox(
-            "Select HUB to Extract",
-            ["SoCe Innovation Hub", "CEFI Fintech Hub", "UPNG Innovation Hub", "PNG Unitech Innovation Hub"]
-        )
-        
+        extract_hub = st.selectbox("Select HUB to Extract", ["SoCe Innovation Hub", "CEFI Fintech Hub", "UPNG Innovation Hub", "PNG Unitech Innovation Hub"])
         if st.button("Extract Pitches"):
             try:
                 df = pd.read_csv('pitches.csv')
                 hub_pitches = df[df['Hub'] == extract_hub]
-                
                 if len(hub_pitches) > 0:
                     st.success(f"✅ Found {len(hub_pitches)} pitches from {extract_hub}")
                     st.dataframe(hub_pitches)
-                    
                     csv_data = hub_pitches.to_csv(index=False)
-                    st.download_button(
-                        label="📥 Download Extracted Data (CSV)",
-                        data=csv_data,
-                        file_name=f"{extract_hub}_pitches.csv",
-                        mime="text/csv"
-                    )
+                    st.download_button(label="📥 Download Extracted Data (CSV)", data=csv_data, file_name=f"{extract_hub}_pitches.csv", mime="text/csv")
                 else:
                     st.warning(f"No pitches found for {extract_hub}")
             except FileNotFoundError:
