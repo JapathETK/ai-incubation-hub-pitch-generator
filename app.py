@@ -103,13 +103,13 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
         text = text.encode('ascii', 'ignore').decode('ascii')
         return text
 
-    # --- CRITICAL: sanitize everything once at the start ---
+    # --- Sanitize everything once at the start ---
     pitch_text = local_sanitize(pitch_text)
     hub_name = local_sanitize(hub_name)
     user_name = local_sanitize(user_name)
 
     def parse_inline_markdown(text):
-        # text is already sanitized and ASCII
+        # text is already ASCII
         segments = []
         last_end = 0
         bold_matches = list(re.finditer(r'\*\*([^\*]+)\*\*', text))
@@ -162,7 +162,6 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
     pdf.set_font("Arial", "", 11)
 
     def write_formatted_paragraph(text, indent=0):
-        # text is already sanitized
         segments = parse_inline_markdown(text)
         if indent:
             pdf.cell(indent)
@@ -182,8 +181,7 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
             pdf.ln(4)
             continue
 
-        # line is already sanitized
-        clean = raw
+        clean = raw  # already sanitized
 
         # --- Table of Contents (multiple numbered items) ---
         if re.search(r'\d+\.\s+[A-Z]', clean) and len(clean.split('.')) > 3:
@@ -219,7 +217,7 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
             list_text = clean[2:] if clean.startswith('- ') else clean[2:]
             pdf.set_font("Arial", "", 11)
             pdf.cell(8)
-            pdf.write(6, "• ")   # plain ASCII bullet
+            pdf.write(6, "* ")   # ASCII bullet (no Unicode)
             segments = parse_inline_markdown(list_text)
             for style, part in segments:
                 if style == 'bold':
@@ -245,7 +243,6 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
         write_formatted_paragraph(clean)
 
     return pdf.output(dest='S').encode('latin-1', errors='ignore')
-
 # --- Improved Word Generation ---
 def generate_word_proposal(pitch_text, hub_name, user_name):
     doc = Document()
