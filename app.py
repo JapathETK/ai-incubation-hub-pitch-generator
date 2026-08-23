@@ -6,6 +6,8 @@ import os
 from pitch_generator import generate_pitch
 from fpdf import FPDF
 from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from io import BytesIO
 import re
 
@@ -36,40 +38,68 @@ def save_pitch_to_db(hub_name, user_name, pitch_text):
         st.error(f"Error saving pitch: {e}")
         return False
 
+# --- Helper: sanitize Unicode characters ---
+def sanitize(text):
+    replacements = {
+        '\u2013': '-', '\u2014': '--', '\u2018': "'", '\u2019': "'",
+        '\u201c': '"', '\u201d': '"', '\u2026': '...', '\u2022': '*', '\u00a0': ' ',
+        '\u2023': '*',  # triangular bullet
+        '\u2043': '*',  # hyphen bullet
+    }
+    for char, repl in replacements.items():
+        text = text.replace(char, repl)
+    # Remove any remaining non-ASCII characters
+    text = text.encode('ascii', 'ignore').decode('ascii')
+    return text
+
+# --- Helper: parse inline markdown (**bold**, *italic*) ---
+def parse_inline_markdown(text):
+    # Returns list of (style, text) where style = 'normal', 'bold', 'italic'
+    # This parser handles **bold** and *italic* (non‑nested)
+    segments = []
+    last_end = 0
+    # Find bold **...**
+    bold_matches = list(re.finditer(r'\*\*([^\*]+)\*\*', text))
+    if bold_matches:
+        for match in bold_matches:
+            start, end = match.span()
+            if start > last_end:
+                segments.append(('normal', text[last_end:start]))
+            segments.append(('bold', match.group(1)))
+            last_end = end
+        if last_end < len(text):
+            segments.append(('normal', text[last_end:]))
+    else:
+        segments.append(('normal', text))
+
+    # Process italic *...* in normal segments only
+    final_segments = []
+    for style, seg_text in segments:
+        if style == 'normal':
+            italic_matches = list(re.finditer(r'\*([^\*]+)\*', seg_text))
+            if italic_matches:
+                last = 0
+                for match in italic_matches:
+                    s, e = match.span()
+                    if s > last:
+                        final_segments.append(('normal', seg_text[last:s]))
+                    final_segments.append(('italic', match.group(1)))
+                    last = e
+                if last < len(seg_text):
+                    final_segments.append(('normal', seg_text[last:]))
+            else:
+                final_segments.append(('normal', seg_text))
+        else:
+            final_segments.append((style, seg_text))
+    return final_segments
+
 # --- Improved PDF Generation ---
 def generate_pdf_proposal(pitch_text, hub_name, user_name):
-    def sanitize(text):
-        replacements = {
-            '\u2013': '-', '\u2014': '--', '\u2018': "'", '\u2019': "'",
-            '\u201c': '"', '\u201d': '"', '\u2026': '...', '\u2022': '*', '\u00a0': ' '
-        }
-        for char, repl in replacements.items():
-            text = text.replace(char, repl)
-        text = text.encode('ascii', 'ignore').decode('ascii')
-        return text
-
-    def clean_markdown(text):
-        text = re.sub(r'\*\*([^\*]+)\*\*', r'\1', text)
-        text = re.sub(r'__([^_]+)__', r'\1', text)
-        text = re.sub(r'\\\*\\\*', '', text)
-        text = re.sub(r'\\\*', '', text)
-        text = re.sub(r'\*\*', '', text)
-        text = re.sub(r'\_\_', '', text)
-        text = re.sub(r'<[^>]+>', '', text)
-        text = re.sub(r'&amp;', '&', text)
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text
-
-    def clean_budget_table(text):
-        if '|' in text and 'Category' in text:
-            parts = [p.strip() for p in text.split('|') if p.strip()]
-            return ' | '.join(parts)
-        return text
-
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
+    # Cover
     pdf.set_font("Arial", "B", 18)
     pdf.cell(0, 10, "Funding Proposal", ln=True, align="C")
     pdf.ln(5)
@@ -81,6 +111,21 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
 
     pdf.set_font("Arial", "", 11)
 
+    # Helper to write a paragraph with inline formatting
+    def write_formatted_paragraph(text, indent=0):
+        segments = parse_inline_markdown(text)
+        if indent:
+            pdf.cell(indent)
+        for style, part in segments:
+            if style == 'bold':
+                pdf.set_font("Arial", "B", 11)
+            elif style == 'italic':
+                pdf.set_font("Arial", "I", 11)
+            else:
+                pdf.set_font("Arial", "", 11)
+            pdf.write(6, part)
+        pdf.ln(6)
+
     for line in pitch_text.split('\n'):
         raw = line.rstrip()
         if not raw:
@@ -88,10 +133,8 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
             continue
 
         clean = sanitize(raw)
-        clean = clean_markdown(clean)
-        clean = clean_budget_table(clean)
 
-        # Table of Contents split
+        # --- Table of Contents (multiple numbered items in one line) ---
         if re.search(r'\d+\.\s+[A-Z]', clean) and len(clean.split('.')) > 3:
             parts = re.split(r'(\d+\.\s+[A-Z][A-Z\s]+)', clean)
             for part in parts:
@@ -104,7 +147,7 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
                     pdf.ln(1)
             continue
 
-        # Headings
+        # --- Headings (starts with #) ---
         if clean.startswith('#'):
             heading_text = clean.lstrip('#').strip()
             pdf.set_font("Arial", "B", 14)
@@ -113,60 +156,72 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
             pdf.ln(2)
             continue
 
-        # Numbered lists
+        # --- Numbered lists ---
         if re.match(r'^(\d+\.)\s', clean):
             pdf.set_font("Arial", "", 11)
             pdf.cell(8)
+            write_formatted_paragraph(clean, indent=0)
+            continue
+
+        # --- Bullet lists ---
+        if clean.startswith('- ') or clean.startswith('* '):
+            list_text = clean[2:] if clean.startswith('- ') else clean[2:]
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(8)
+            pdf.write(6, "• ")
+            segments = parse_inline_markdown(list_text)
+            for style, part in segments:
+                if style == 'bold':
+                    pdf.set_font("Arial", "B", 11)
+                elif style == 'italic':
+                    pdf.set_font("Arial", "I", 11)
+                else:
+                    pdf.set_font("Arial", "", 11)
+                pdf.write(6, part)
+            pdf.ln(6)
+            continue
+
+        # --- Budget table (if line contains pipes) ---
+        if '|' in clean:
+            clean = re.sub(r'<[^>]+>', '', clean)
+            clean = re.sub(r'\s+', ' ', clean).strip()
+            pdf.set_font("Arial", "", 11)
             pdf.multi_cell(0, 6, clean)
             pdf.ln(1)
             continue
 
-        # Bullet lists
-        if clean.startswith('- ') or clean.startswith('* '):
-            pdf.set_font("Arial", "", 11)
-            pdf.cell(8)
-            list_text = clean[2:] if clean.startswith('- ') else clean[2:]
-            pdf.multi_cell(0, 6, f"• {list_text}")
-            pdf.ln(1)
-            continue
-
-        # Regular text
+        # --- Regular paragraph with inline formatting ---
         pdf.set_font("Arial", "", 11)
-        pdf.multi_cell(0, 6, clean)
-        pdf.ln(1)
+        write_formatted_paragraph(clean)
 
-    return pdf.output(dest='S').encode('latin-1')
+    return pdf.output(dest='S').encode('latin-1', errors='ignore')
 
 # --- Improved Word Generation ---
 def generate_word_proposal(pitch_text, hub_name, user_name):
-    def sanitize(text):
-        replacements = {
-            '\u2013': '-', '\u2014': '--', '\u2018': "'", '\u2019': "'",
-            '\u201c': '"', '\u201d': '"', '\u2026': '...', '\u2022': '*', '\u00a0': ' '
-        }
-        for char, repl in replacements.items():
-            text = text.replace(char, repl)
-        return text
-
-    def clean_markdown(text):
-        text = re.sub(r'\*\*([^\*]+)\*\*', r'\1', text)
-        text = re.sub(r'__([^_]+)__', r'\1', text)
-        text = re.sub(r'\\\*\\\*', '', text)
-        text = re.sub(r'\\\*', '', text)
-        text = re.sub(r'\*\*', '', text)
-        text = re.sub(r'\_\_', '', text)
-        text = re.sub(r'<[^>]+>', '', text)
-        text = re.sub(r'&amp;', '&', text)
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text
-
     doc = Document()
     title = doc.add_heading('Funding Proposal', 0)
-    title.alignment = 1
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph(f"Project: {sanitize(hub_name)}")
     doc.add_paragraph(f"Prepared by: {sanitize(user_name)}")
     doc.add_paragraph(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d')}")
     doc.add_paragraph()
+
+    # Helper to add a paragraph with inline formatting
+    def add_formatted_paragraph(text, style='Normal', bullet=False, indent=0):
+        p = doc.add_paragraph(style=style)
+        if bullet:
+            p.paragraph_format.left_indent = Pt(36)
+            p.paragraph_format.first_line_indent = Pt(-18)
+        if indent:
+            p.paragraph_format.left_indent = Pt(indent)
+        segments = parse_inline_markdown(text)
+        for style, part in segments:
+            run = p.add_run(part)
+            if style == 'bold':
+                run.bold = True
+            elif style == 'italic':
+                run.italic = True
+        return p
 
     for line in pitch_text.split('\n'):
         raw = line.strip()
@@ -175,9 +230,8 @@ def generate_word_proposal(pitch_text, hub_name, user_name):
             continue
 
         clean = sanitize(raw)
-        clean = clean_markdown(clean)
 
-        # Table of Contents split
+        # --- Table of Contents ---
         if re.search(r'\d+\.\s+[A-Z]', clean) and len(clean.split('.')) > 3:
             parts = re.split(r'(\d+\.\s+[A-Z][A-Z\s]+)', clean)
             for part in parts:
@@ -186,7 +240,7 @@ def generate_word_proposal(pitch_text, hub_name, user_name):
                     doc.add_paragraph(part, style='List Number')
             continue
 
-        # Headings
+        # --- Headings ---
         if clean.startswith('#'):
             heading_text = clean.lstrip('#').strip()
             level = len(clean) - len(clean.lstrip('#'))
@@ -194,19 +248,36 @@ def generate_word_proposal(pitch_text, hub_name, user_name):
             doc.add_heading(heading_text, level=level)
             continue
 
-        # Numbered lists
+        # --- Numbered lists ---
         if re.match(r'^(\d+\.)\s', clean):
-            doc.add_paragraph(clean, style='List Number')
+            add_formatted_paragraph(clean, style='List Number')
             continue
 
-        # Bullet lists
+        # --- Bullet lists ---
         if clean.startswith('- ') or clean.startswith('* '):
             list_text = clean[2:] if clean.startswith('- ') else clean[2:]
-            doc.add_paragraph(f"• {list_text}", style='List Bullet')
+            p = doc.add_paragraph(style='List Bullet')
+            p.paragraph_format.left_indent = Pt(36)
+            p.paragraph_format.first_line_indent = Pt(-18)
+            run = p.add_run("• ")
+            segments = parse_inline_markdown(list_text)
+            for style, part in segments:
+                run = p.add_run(part)
+                if style == 'bold':
+                    run.bold = True
+                elif style == 'italic':
+                    run.italic = True
             continue
 
-        # Regular paragraphs
-        doc.add_paragraph(clean)
+        # --- Budget table (pipes) ---
+        if '|' in clean:
+            clean = re.sub(r'<[^>]+>', '', clean)
+            clean = re.sub(r'\s+', ' ', clean).strip()
+            doc.add_paragraph(clean)
+            continue
+
+        # --- Regular paragraph ---
+        add_formatted_paragraph(clean)
 
     buffer = BytesIO()
     doc.save(buffer)
