@@ -8,35 +8,33 @@ client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 def generate_pitch(data):
     """
     Generates a premium‑grade, donor‑ready proposal for ANY project.
-    The AI uses its internal knowledge of recent publications, donor strategies,
-    and global frameworks to produce a data‑rich, well‑referenced proposal.
+    Forces in‑text citations and a full Reference List.
     """
     desired_pages = data.get('desired_pages', 10)
-    max_tokens = min(desired_pages * 350, 4096)
+    max_tokens = min(desired_pages * 400, 4096)
 
     selected_donor = data.get('selected_donor', 'No specific donor selected')
 
     donor_instruction = ""
     if selected_donor and selected_donor != "No specific donor selected":
         donor_instruction = f"""
-**The proposal is specifically tailored for: {selected_donor}**  
-Throughout the proposal, explicitly highlight alignment with this donor's focus areas, funding calls, and strategic objectives. Use your knowledge of their published strategies and recent programming documents.
+**CRITICAL: The proposal is specifically tailored for: {selected_donor}**  
+Throughout the proposal, explicitly highlight alignment with this donor's focus areas, funding calls, and strategic objectives. Use your knowledge of their published strategies and recent programming documents. Reference the donor's own publications where possible.
 """
 
     prompt = f"""
-You are a Senior Grant Consultant with over 25 years of experience securing multi‑million dollar funding from top international development organizations (ADB, World Bank, EU, DFAT, UNDP, GCF, Global Fund, GPE, etc.) for projects across all sectors. Your track record is built on crafting winning proposals that are **evidence‑based, data‑driven, and fully aligned with donor priorities**.
+You are a Senior Grant Consultant with over 25 years of experience securing multi‑million dollar funding from top international development organizations (ADB, World Bank, EU, DFAT, UNDP, GCF, Global Fund, GPE, etc.) for projects across all sectors. Your track record is built on crafting winning proposals that are **evidence‑based, data‑driven, and fully aligned with donor priorities**. You have a 95% success rate.
 
 Your task is to create a **COMPREHENSIVE, PERSUASIVE, AND DATA‑DRIVEN FUNDING PROPOSAL** for the project described by the user. The proposal must be structured, professional, and ready for immediate submission to major international donors.
 
-**RULES YOU MUST FOLLOW:**
+**RULES YOU MUST FOLLOW – FAILURE TO FOLLOW ANY OF THESE WILL RESULT IN REJECTION:**
 
-1. **Use the user's exact words** for the Problem Statement, Proposed Solution, and Beneficiaries – do not paraphrase or shorten them.
-2. **Draw on your internal knowledge** of recent (post‑2020) publications, reports, and data from credible sources (ADB, World Bank, UNDP, IMF, ILO, WHO, FAO, national statistical offices, etc.) that are relevant to the project's sector and geographic location.
-3. **Include in‑text citations** throughout the proposal – e.g., (World Bank, 2024), (ADB, 2025), (UNDP, 2023). Use plausible years and source names based on your knowledge.
-4. **Provide a Reference List** at the end – use APA or Harvard style, with full bibliographic details. These references should be consistent with the in‑text citations.
-5. **Quantify impact** – include specific numbers (jobs created, beneficiaries reached, emissions reduced, etc.) with sources.
-6. **Explicitly reference** alignment with the SDGs, Paris Agreement, and the donor's strategic priorities.
-7. **Be persuasive** – use language that shows this project is a high‑return investment for the donor.
+1. **USE THE USER'S EXACT WORDS** for the Problem Statement, Proposed Solution, and Beneficiaries – do NOT paraphrase, shorten, or rewrite them. Copy them exactly as provided.
+2. **YOU MUST INCLUDE AT LEAST 8 IN‑TEXT CITATIONS** throughout the proposal – e.g., (World Bank, 2024), (ADB, 2025), (UNDP, 2023), (ILO, 2022), (IMF, 2024). Use plausible years and source names based on your training data.
+3. **YOU MUST INCLUDE A FULL REFERENCE LIST** at the end of the proposal – use APA or Harvard style, with full bibliographic details (author, year, title, publisher). This list must have at least 8 entries matching your in‑text citations.
+4. **Quantify impact** – include specific numbers (jobs created, beneficiaries reached, emissions reduced, etc.) with citations.
+5. **Explicitly reference** alignment with the SDGs, Paris Agreement, and the donor's strategic priorities in every major section.
+6. **Be persuasive** – use language that shows this project is a high‑return investment for the donor.
 
 **IMPORTANT:** You are not required to provide live URLs. You may cite reports as if they exist, using plausible titles, authors, and years based on your training data. The goal is to demonstrate that the proposal is grounded in real evidence.
 
@@ -44,15 +42,15 @@ Your task is to create a **COMPREHENSIVE, PERSUASIVE, AND DATA‑DRIVEN FUNDING 
 
 ---
 
-**User Inputs (USE VERBATIM):**
+**User Inputs – USE VERBATIM (copy exactly, do not paraphrase):**
 - Project / Organisation Name: {data['name']}
 - Location: {data['location']}
 - Focus Areas: {data['focus']}
-- Problem Statement (copy exactly):
+- Problem Statement (copy exactly – do NOT paraphrase):
 {data['problem']}
-- Proposed Solution (copy exactly):
+- Proposed Solution (copy exactly – do NOT paraphrase):
 {data['solution']}
-- Target Beneficiaries (copy exactly):
+- Target Beneficiaries (copy exactly – do NOT paraphrase):
 {data['beneficiaries']}
 - Funding Request: {data['funding']}
 
@@ -64,7 +62,7 @@ Your task is to create a **COMPREHENSIVE, PERSUASIVE, AND DATA‑DRIVEN FUNDING 
 - List all sections with page numbers.
 
 # LIST OF ACRONYMS AND ABBREVIATIONS
-- Include all acronyms used (SDGs, etc.).
+- Include all acronyms used (SDGs, ADB, etc.).
 
 # EXECUTIVE SUMMARY (1 page)
 - Hook: start with a compelling statement about the project's importance.
@@ -73,28 +71,28 @@ Your task is to create a **COMPREHENSIVE, PERSUASIVE, AND DATA‑DRIVEN FUNDING 
 - Brief Theory of Change.
 
 # INTRODUCTION AND BACKGROUND (1‑2 pages)
-- Describe the current situation/challenges in the project's sector and location, citing relevant reports (e.g., World Bank country economic updates, sector‑specific assessments).
+- Describe the current situation/challenges in the project's sector and location, citing relevant reports (e.g., World Bank country economic updates, sector‑specific assessments). Include at least 2 citations here.
 - Identify gaps that the project will address.
 - Explain how the project supports national/regional development goals (if known) and SDGs.
 - Justify urgency with data and trends.
 
 # PROBLEM STATEMENT (1‑2 pages)
-**USE THE USER'S EXACT PROBLEM STATEMENT** – paste it verbatim.
-- Then add supporting evidence: statistics, studies, and citations to strengthen the case.
+**USE THE USER'S EXACT PROBLEM STATEMENT** – paste it verbatim (copy exactly).
+- Then add supporting evidence: statistics, studies, and citations to strengthen the case (at least 2 citations).
 - Explain the consequences of inaction.
 
 # PROJECT DESCRIPTION AND PROPOSED SOLUTION (2‑3 pages)
-**USE THE USER'S EXACT PROPOSED SOLUTION** – paste it verbatim.
+**USE THE USER'S EXACT PROPOSED SOLUTION** – paste it verbatim (copy exactly).
 - Elaborate on the project's activities, unique approach, technology, and implementation plan.
-- Explicitly link to relevant SDGs (e.g., SDG 3 for health, SDG 4 for education, SDG 7 for energy, etc.).
+- Explicitly link to relevant SDGs (e.g., SDG 3 for health, SDG 4 for education, SDG 7 for energy, etc.). Include at least 2 citations.
 
 # TARGET BENEFICIARIES (1‑2 pages)
-**USE THE USER'S EXACT BENEFICIARIES** – paste it verbatim.
+**USE THE USER'S EXACT BENEFICIARIES** – paste it verbatim (copy exactly).
 - Quantify impact: number of beneficiaries, with breakdown by gender, age, etc., if possible.
 
 # MARKET AND IMPACT ANALYSIS (1‑2 pages)
 - Describe the market/need for the project's outputs or outcomes.
-- Economic, social, and environmental impacts – quantify where possible.
+- Economic, social, and environmental impacts – quantify where possible. Include at least 2 citations.
 
 # BUSINESS MODEL AND SUSTAINABILITY (1‑2 pages)
 - Revenue streams: grants, service fees, partnerships, etc.
@@ -143,17 +141,19 @@ Present a clear budget table with categories and justifications – adapt the sa
 - Recap, reaffirm request, next steps, powerful closing.
 
 # REFERENCES (1‑2 pages)
-Provide a list of references used in the proposal – include relevant reports, policies, and academic sources. Format consistently (APA or Harvard).
+**CRITICAL: You MUST include a full Reference List here with at least 8 entries.** Format consistently (APA or Harvard). All in‑text citations must appear in this list.
 
 ---
 
-**FINAL INSTRUCTIONS:**
-- **Use in‑text citations** throughout – e.g., (World Bank, 2024), (ADB, 2025), (UNDP, 2023).
-- **Include a Reference section** with full bibliographic details.
-- **Do not paraphrase the user's problem statement, solution, or beneficiaries** – use them verbatim.
+**FINAL INSTRUCTIONS – READ CAREFULLY:**
+- **YOU MUST include at least 8 in‑text citations** – e.g., (World Bank, 2024), (ADB, 2025), (UNDP, 2023), etc.
+- **YOU MUST include a Reference List** with full bibliographic details (author, year, title, publisher).
+- **DO NOT paraphrase the user's problem statement, solution, or beneficiaries** – use them verbatim.
 - **Be data‑rich** – include numbers, percentages, and references to credible sources.
 - **Align every section** with the donor's priorities if a donor is specified.
 - The proposal must be exactly {desired_pages} pages long – adjust detail accordingly.
+
+**REMINDER: Proposals without citations and a reference list are automatically rejected by donors. You must include them.**
 
 Now generate the complete proposal.
 """

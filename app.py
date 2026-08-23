@@ -7,6 +7,7 @@ from pitch_generator import generate_pitch
 from fpdf import FPDF
 from docx import Document
 from io import BytesIO
+import re
 
 # --- Page Configuration ---
 st.set_page_config(page_title="AI Pitch Generator - PNG", layout="wide")
@@ -35,25 +36,34 @@ def save_pitch_to_db(hub_name, user_name, pitch_text):
         st.error(f"Error saving pitch: {e}")
         return False
 
-# --- PDF Generation with Unicode sanitization ---
+# --- Improved PDF Generation ---
 def generate_pdf_proposal(pitch_text, hub_name, user_name):
-    # Helper to replace Unicode characters with ASCII equivalents
     def sanitize(text):
         replacements = {
-            '\u2013': '-',   # en dash
-            '\u2014': '--',  # em dash
-            '\u2018': "'",   # left single quote
-            '\u2019': "'",   # right single quote
-            '\u201c': '"',   # left double quote
-            '\u201d': '"',   # right double quote
-            '\u2026': '...', # ellipsis
-            '\u2022': '*',   # bullet
-            '\u00a0': ' ',   # non-breaking space
+            '\u2013': '-', '\u2014': '--', '\u2018': "'", '\u2019': "'",
+            '\u201c': '"', '\u201d': '"', '\u2026': '...', '\u2022': '*', '\u00a0': ' '
         }
         for char, repl in replacements.items():
             text = text.replace(char, repl)
-        # Remove any remaining non-ASCII characters
         text = text.encode('ascii', 'ignore').decode('ascii')
+        return text
+
+    def clean_markdown(text):
+        text = re.sub(r'\*\*([^\*]+)\*\*', r'\1', text)
+        text = re.sub(r'__([^_]+)__', r'\1', text)
+        text = re.sub(r'\\\*\\\*', '', text)
+        text = re.sub(r'\\\*', '', text)
+        text = re.sub(r'\*\*', '', text)
+        text = re.sub(r'\_\_', '', text)
+        text = re.sub(r'<[^>]+>', '', text)
+        text = re.sub(r'&amp;', '&', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+
+    def clean_budget_table(text):
+        if '|' in text and 'Category' in text:
+            parts = [p.strip() for p in text.split('|') if p.strip()]
+            return ' | '.join(parts)
         return text
 
     pdf = FPDF()
@@ -61,49 +71,143 @@ def generate_pdf_proposal(pitch_text, hub_name, user_name):
     pdf.add_page()
 
     pdf.set_font("Arial", "B", 18)
-    pdf.cell(0, 10, "AI Incubation Hub - Funding Proposal", ln=True, align="C")
+    pdf.cell(0, 10, "Funding Proposal", ln=True, align="C")
     pdf.ln(5)
     pdf.set_font("Arial", "", 12)
-    pdf.cell(0, 10, f"Hub: {sanitize(hub_name)}", ln=True)
+    pdf.cell(0, 10, f"Project: {sanitize(hub_name)}", ln=True)
     pdf.cell(0, 10, f"Prepared by: {sanitize(user_name)}", ln=True)
     pdf.cell(0, 10, f"Date: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True)
     pdf.ln(10)
 
     pdf.set_font("Arial", "", 11)
+
     for line in pitch_text.split('\n'):
-        clean_line = sanitize(line).strip()
-        if clean_line.startswith('#'):
+        raw = line.rstrip()
+        if not raw:
+            pdf.ln(4)
+            continue
+
+        clean = sanitize(raw)
+        clean = clean_markdown(clean)
+        clean = clean_budget_table(clean)
+
+        # Table of Contents split
+        if re.search(r'\d+\.\s+[A-Z]', clean) and len(clean.split('.')) > 3:
+            parts = re.split(r'(\d+\.\s+[A-Z][A-Z\s]+)', clean)
+            for part in parts:
+                part = part.strip()
+                if re.match(r'\d+\.\s+', part):
+                    pdf.set_font("Arial", "B", 11)
+                    pdf.cell(8)
+                    pdf.multi_cell(0, 6, part)
+                    pdf.set_font("Arial", "", 11)
+                    pdf.ln(1)
+            continue
+
+        # Headings
+        if clean.startswith('#'):
+            heading_text = clean.lstrip('#').strip()
             pdf.set_font("Arial", "B", 14)
-            heading_text = clean_line.lstrip('#').strip()
             pdf.multi_cell(0, 8, heading_text)
             pdf.set_font("Arial", "", 11)
             pdf.ln(2)
-        elif clean_line == '':
-            pdf.ln(4)
-        else:
-            pdf.multi_cell(0, 6, clean_line)
+            continue
+
+        # Numbered lists
+        if re.match(r'^(\d+\.)\s', clean):
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(8)
+            pdf.multi_cell(0, 6, clean)
+            pdf.ln(1)
+            continue
+
+        # Bullet lists
+        if clean.startswith('- ') or clean.startswith('* '):
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(8)
+            list_text = clean[2:] if clean.startswith('- ') else clean[2:]
+            pdf.multi_cell(0, 6, f"• {list_text}")
+            pdf.ln(1)
+            continue
+
+        # Regular text
+        pdf.set_font("Arial", "", 11)
+        pdf.multi_cell(0, 6, clean)
+        pdf.ln(1)
 
     return pdf.output(dest='S').encode('latin-1')
 
-# --- Word Generation ---
+# --- Improved Word Generation ---
 def generate_word_proposal(pitch_text, hub_name, user_name):
+    def sanitize(text):
+        replacements = {
+            '\u2013': '-', '\u2014': '--', '\u2018': "'", '\u2019': "'",
+            '\u201c': '"', '\u201d': '"', '\u2026': '...', '\u2022': '*', '\u00a0': ' '
+        }
+        for char, repl in replacements.items():
+            text = text.replace(char, repl)
+        return text
+
+    def clean_markdown(text):
+        text = re.sub(r'\*\*([^\*]+)\*\*', r'\1', text)
+        text = re.sub(r'__([^_]+)__', r'\1', text)
+        text = re.sub(r'\\\*\\\*', '', text)
+        text = re.sub(r'\\\*', '', text)
+        text = re.sub(r'\*\*', '', text)
+        text = re.sub(r'\_\_', '', text)
+        text = re.sub(r'<[^>]+>', '', text)
+        text = re.sub(r'&amp;', '&', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+
     doc = Document()
-    title = doc.add_heading('AI Incubation Hub - Funding Proposal', 0)
+    title = doc.add_heading('Funding Proposal', 0)
     title.alignment = 1
-    doc.add_paragraph(f"Hub: {hub_name}")
-    doc.add_paragraph(f"Prepared by: {user_name}")
+    doc.add_paragraph(f"Project: {sanitize(hub_name)}")
+    doc.add_paragraph(f"Prepared by: {sanitize(user_name)}")
     doc.add_paragraph(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d')}")
     doc.add_paragraph()
+
     for line in pitch_text.split('\n'):
-        clean_line = line.strip()
-        if clean_line.startswith('#'):
-            level = min(len(clean_line) - len(clean_line.lstrip('#')), 9)
-            heading_text = clean_line.lstrip('#').strip()
-            doc.add_heading(heading_text, level=level)
-        elif clean_line == '':
+        raw = line.strip()
+        if not raw:
             doc.add_paragraph()
-        else:
-            doc.add_paragraph(clean_line)
+            continue
+
+        clean = sanitize(raw)
+        clean = clean_markdown(clean)
+
+        # Table of Contents split
+        if re.search(r'\d+\.\s+[A-Z]', clean) and len(clean.split('.')) > 3:
+            parts = re.split(r'(\d+\.\s+[A-Z][A-Z\s]+)', clean)
+            for part in parts:
+                part = part.strip()
+                if re.match(r'\d+\.\s+', part):
+                    doc.add_paragraph(part, style='List Number')
+            continue
+
+        # Headings
+        if clean.startswith('#'):
+            heading_text = clean.lstrip('#').strip()
+            level = len(clean) - len(clean.lstrip('#'))
+            level = min(level, 9)
+            doc.add_heading(heading_text, level=level)
+            continue
+
+        # Numbered lists
+        if re.match(r'^(\d+\.)\s', clean):
+            doc.add_paragraph(clean, style='List Number')
+            continue
+
+        # Bullet lists
+        if clean.startswith('- ') or clean.startswith('* '):
+            list_text = clean[2:] if clean.startswith('- ') else clean[2:]
+            doc.add_paragraph(f"• {list_text}", style='List Bullet')
+            continue
+
+        # Regular paragraphs
+        doc.add_paragraph(clean)
+
     buffer = BytesIO()
     doc.save(buffer)
     return buffer.getvalue()
